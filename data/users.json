@@ -1,0 +1,16 @@
+[
+    {
+        "id": "1",
+        "username": "Abdul138",
+        "password_hash": "1234",
+        "role": "player",
+        "rating": 800
+    },
+    {
+        "id": "2",
+        "username": "Magnus",
+        "password_hash": "4567",
+        "role": "player",
+        "rating": 3000
+    }
+]
