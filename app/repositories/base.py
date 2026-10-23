@@ -15,8 +15,16 @@ class BaseRepository[T: BaseModel]:
         self.model = model
 
     def load_all(self) -> list[T]:
-        """Read the JSON file and turn each entry into a validated model."""
-        data = json.loads(self.file_path.read_text(encoding="utf-8"))
+        """Read the JSON file and turn each entry into a validated model.
+
+        If the file doesn't exist yet, create it as an empty list.
+        """
+        try:
+            text = self.file_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            self.file_path.write_text("[]", encoding="utf-8")
+            return []
+        data = json.loads(text)
         return [self.model.model_validate(item) for item in data]
 
     def save_all(self, items: list[T]) -> None:
