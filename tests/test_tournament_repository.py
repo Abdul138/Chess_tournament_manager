@@ -53,7 +53,10 @@ def test_status_survives_round_trip(tournament_repo):
     tournament_repo.add(tournament)
     loaded = tournament_repo.get_by_id("t1")
 
-    assert loaded.status == TournamentStatus.REGISTRATION_OPEN
+    # Saved as a plain string in the JSON file...
+    assert '"registration_open"' in tournament_repo.file_path.read_text(encoding="utf-8")
+    # ...and turned back into the enum (not just a string) when loaded.
+    assert loaded.status is TournamentStatus.REGISTRATION_OPEN
 
 
 def test_update_replaces_matching_tournament(tournament_repo):
