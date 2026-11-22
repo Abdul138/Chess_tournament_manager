@@ -14,13 +14,21 @@ def round_robin_pairings(
     """Return the (white_id, black_id) pairs for one round of a round robin.
 
     - round_number starts at 1.
-    - Withdrawn players are removed before pairing.
+    - Withdrawn players are removed before pairing. Ids in withdrawn_ids that
+      are not in player_ids are ignored.
     - With an odd number of players, one player gets a bye each round. A bye
       is returned as (player_id, None), matching how the Game model stores it.
     - Over all the rounds, every pair of players meets exactly once, every
       player gets exactly one bye (odd count only), and whites and blacks are
       shared out as evenly as possible.
     - Fewer than 2 players means there is nothing to pair: returns [].
+
+    Important: the guarantees above only hold if player_ids and withdrawn_ids
+    stay the same for every round. The schedule is worked out from the active
+    players each time this is called, so if someone withdraws after round 1
+    the later rounds are planned for a different group and pairs can repeat.
+    What should happen when a player withdraws mid-tournament is not decided
+    yet (see issue #7).
 
     Raises ValueError if a player id is repeated or round_number is out of range.
 

@@ -3,6 +3,7 @@ from itertools import combinations
 
 import pytest
 
+from app.models import Tournament
 from app.services.pairing import round_robin_pairings
 
 
@@ -102,6 +103,19 @@ def test_no_long_runs_of_the_same_colour(count):
 
     for colours in history.values():
         assert "WWW" not in colours and "BBB" not in colours
+
+
+@pytest.mark.parametrize("count", range(2, 13))
+def test_round_count_matches_tournament_total_rounds(count):
+    """With no withdrawals, the last allowed round is Tournament.total_rounds."""
+    tournament = Tournament(
+        id="t1", name="Club RR", organizer_id="u0", format="round_robin",
+        max_players=20, player_ids=ids(count),
+    )
+
+    assert round_robin_pairings(tournament.player_ids, tournament.total_rounds) != []
+    with pytest.raises(ValueError):
+        round_robin_pairings(tournament.player_ids, tournament.total_rounds + 1)
 
 
 # ---------- Withdrawn players ----------
