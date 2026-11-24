@@ -2,14 +2,14 @@
     {
         "id": "1",
         "username": "Abdul138",
-        "password_hash": "1234",
+        "password_hash": "scrypt$32768$8$1$O8HXmM9DZxHTHDukD4rHWg==$ZN9wtjEVWl7dqLp5l9R4Wa6Gy2pzHlgU+R/XCpRMA6U=",
         "role": "player",
         "rating": 800
     },
     {
         "id": "2",
         "username": "Magnus",
-        "password_hash": "4567",
+        "password_hash": "scrypt$32768$8$1$2fvHH6IPfu6UkfUOOE0tnw==$J3KNfRVqnj3/OU94stbodtV94TArKIgTpbMMEFReCJA=",
         "role": "player",
         "rating": 3000
     }
