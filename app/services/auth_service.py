@@ -33,8 +33,16 @@ SCRYPT_R = 8
 SCRYPT_P = 1
 SALT_BYTES = 16
 HASH_BYTES = 32
-# hashlib refuses to use more than 32 MiB unless we raise the limit.
-MAX_MEMORY = 64 * 1024 * 1024
+
+# verify_password reads n, r and p back out of the stored hash. A broken or
+# tampered hash could ask for huge values and keep the server busy for
+# seconds or minutes, so we only accept a safe range: n may be raised later
+# (up to 2**17), while r and p must stay at the values above.
+MIN_N = 2**14
+MAX_N = 2**17
+# hashlib refuses to use more than 32 MiB unless we raise the limit. This is
+# enough for MAX_N (128 MiB); today's settings only use 32 MiB.
+MAX_MEMORY = 256 * 1024 * 1024
 
 PREFIX = "scrypt"
 
@@ -64,18 +72,30 @@ def verify_password(plain: str, stored_hash: str) -> bool:
     """Return True if plain is the password that stored_hash was made from.
 
     Returns False (instead of crashing) if stored_hash isn't in our format,
-    for example an old plain-text value.
+    for example an old plain-text value, or if its settings are outside the
+    safe range above.
     """
+    if not isinstance(stored_hash, str):
+        return False
     try:
-        prefix, n, r, p, salt_b64, digest_b64 = stored_hash.split("$")
-        if prefix != PREFIX:
-            return False
+        prefix, n_text, r_text, p_text, salt_b64, digest_b64 = stored_hash.split("$")
+        n, r, p = int(n_text), int(r_text), int(p_text)
         salt = base64.b64decode(salt_b64, validate=True)
         expected = base64.b64decode(digest_b64, validate=True)
-        actual = _scrypt(plain, salt, int(n), int(r), int(p))
-    except (ValueError, OverflowError):
-        # Wrong number of parts, bad base64, or n/r/p that aren't valid numbers
-        # (not numeric, out of range, or too big for scrypt).
+    except ValueError:
+        # Wrong number of parts, n/r/p not whole numbers, or bad base64.
+        return False
+
+    # Check everything cheap *before* doing the expensive scrypt work.
+    if prefix != PREFIX or len(expected) != HASH_BYTES:
+        return False
+    if not MIN_N <= n <= MAX_N or r != SCRYPT_R or p != SCRYPT_P:
+        return False
+
+    try:
+        actual = _scrypt(plain, salt, n, r, p)
+    except ValueError:
+        # e.g. n is not a power of 2, or the password can't be encoded.
         return False
     # compare_digest takes the same time whether the first byte or the last
     # byte differs, so an attacker can't learn the hash by timing us.

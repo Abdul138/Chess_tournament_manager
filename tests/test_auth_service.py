@@ -1,4 +1,8 @@
+import base64
+import hashlib
 import json
+import os
+import time
 
 import pytest
 
@@ -64,6 +68,51 @@ def test_changed_hash_does_not_verify():
 )
 def test_malformed_stored_hash_returns_false(stored):
     assert verify_password("1234", stored) is False
+
+
+def test_non_string_stored_hash_returns_false():
+    assert verify_password("1234", None) is False
+
+
+def with_settings(stored, n=None, r=None, p=None, digest=None):
+    """Return stored with some of its parts swapped out."""
+    prefix, old_n, old_r, old_p, salt, old_digest = stored.split("$")
+    parts = [prefix, n or old_n, r or old_r, p or old_p, salt, digest or old_digest]
+    return "$".join(str(part) for part in parts)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"p": 100000},     # huge p: would keep the CPU busy for many seconds
+        {"r": 1},          # r must stay at 8
+        {"r": 64},
+        {"p": 2},          # p must stay at 1
+        {"n": 2**13},      # below the minimum strength
+        {"n": 2**18},      # above the maximum we allow
+        {"n": 2**14 + 1},  # in range but not a power of 2
+        {"digest": "AAAA"},  # digest has the wrong length
+    ],
+)
+def test_stored_settings_outside_safe_range_return_false_quickly(changes):
+    stored = with_settings(hash_password("secret"), **changes)
+
+    start = time.perf_counter()
+    assert verify_password("secret", stored) is False
+    assert time.perf_counter() - start < 1
+
+
+def test_hash_made_with_other_allowed_n_still_verifies():
+    """Old hashes keep working if SCRYPT_N is changed later (within the safe range)."""
+    salt = os.urandom(16)
+    digest = hashlib.scrypt(b"secret", salt=salt, n=2**14, r=8, p=1, dklen=32)
+    stored = "$".join(
+        ["scrypt", str(2**14), "8", "1",
+         base64.b64encode(salt).decode(), base64.b64encode(digest).decode()]
+    )
+
+    assert verify_password("secret", stored) is True
+    assert verify_password("wrong", stored) is False
 
 
 # ---------- Sample data ----------
