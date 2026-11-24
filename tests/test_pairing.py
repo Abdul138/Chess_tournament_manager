@@ -141,6 +141,20 @@ def test_withdrawn_players_are_left_out_of_the_whole_schedule():
         assert "u5" not in {p for pair in pairs for p in pair}
 
 
+@pytest.mark.parametrize("count", range(3, 10))
+def test_round_count_matches_total_rounds_with_a_withdrawal(count):
+    """Tournament.total_rounds and the pairing agree once someone has withdrawn."""
+    tournament = Tournament(
+        id="t1", name="Club RR", organizer_id="u0", format="round_robin",
+        max_players=20, player_ids=ids(count), withdrawn_ids=[ids(count)[0]],
+    )
+    players, withdrawn = tournament.player_ids, tournament.withdrawn_ids
+
+    assert round_robin_pairings(players, tournament.total_rounds, withdrawn) != []
+    with pytest.raises(ValueError):
+        round_robin_pairings(players, tournament.total_rounds + 1, withdrawn)
+
+
 # ---------- Bad input ----------
 
 @pytest.mark.parametrize("round_number", [0, -1, 4])

@@ -33,10 +33,19 @@ class Tournament(BaseModel):
         return self
 
     @property
+    def active_player_ids(self) -> list[str]:
+        """Registered players who have not withdrawn, in registration order."""
+        withdrawn = set(self.withdrawn_ids)
+        return [player_id for player_id in self.player_ids if player_id not in withdrawn]
+
+    @property
     def total_rounds(self) -> int:
         if self.format == "swiss":
             return self.num_rounds
-        n = len(self.player_ids)
+        # Only active players count. The rule (issue #7) is that players may
+        # only withdraw before round 1, so players who withdrew never play.
+        # The tournament service is meant to enforce that rule.
+        n = len(self.active_player_ids)
         if n < 2:
             return 0
         # With an odd count, one player sits out (bye) each round, so it takes n rounds.
