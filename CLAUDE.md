@@ -28,7 +28,7 @@ The user is learning backend development: explain changes in beginner-friendly t
 The layers are routes → services → repositories → models:
 
 - `app/routes/`: FastAPI routers (`auth`, `tournaments`, `games`). These must be included in `app/main.py`.
-- `app/services/`: business logic. `auth_service` (password hashing and JWT; the JWT secret is meant to come from `.env`, which is gitignored), `tournament_service` (lifecycle and registration), and `pairing` (round-robin and Swiss pairing).
+- `app/services/`: business logic. `auth_service` (password hashing with the built-in `hashlib.scrypt`, stored as `scrypt$n$r$p$salt$hash`, and later JWT; the JWT secret is meant to come from `.env`, which is gitignored), `tournament_service` (lifecycle and registration), and `pairing` (round-robin and Swiss pairing).
 - `app/repositories/`: persistence over flat JSON files in `data/` (`users.json`, `tournaments.json`, `games.json`), with shared logic in `base.py`. There is no database.
 - `app/models/`: Pydantic v2 models, re-exported from `app/models/__init__.py`.
 
