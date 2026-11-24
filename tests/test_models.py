@@ -84,10 +84,10 @@ def test_round_zero_raises():
 
 # ---------- Tournament ----------
 
-def make_round_robin(player_ids=()):
+def make_round_robin(player_ids=(), withdrawn_ids=()):
     return Tournament(
         id="t1", name="Club RR", organizer_id="o1", format="round_robin",
-        max_players=8, player_ids=list(player_ids),
+        max_players=8, player_ids=list(player_ids), withdrawn_ids=list(withdrawn_ids),
     )
 
 
@@ -124,23 +124,20 @@ def test_round_robin_total_rounds(num_players, expected_rounds):
 
 
 def test_round_robin_total_rounds_ignores_withdrawn_players():
-    t = make_round_robin(player_ids=["u1", "u2", "u3", "u4", "u5"])
-    t.withdrawn_ids = ["u5"]
+    t = make_round_robin(player_ids=["u1", "u2", "u3", "u4", "u5"], withdrawn_ids=["u5"])
 
     # 4 active players -> 3 rounds (not 5, which is what 5 players would need).
     assert t.total_rounds == 3
 
 
 def test_withdrawn_id_not_in_player_ids_is_ignored():
-    t = make_round_robin(player_ids=["u1", "u2", "u3", "u4"])
-    t.withdrawn_ids = ["someone-else"]
+    t = make_round_robin(player_ids=["u1", "u2", "u3", "u4"], withdrawn_ids=["someone-else"])
 
     assert t.total_rounds == 3
 
 
 def test_active_player_ids_keeps_registration_order():
-    t = make_round_robin(player_ids=["u3", "u1", "u2"])
-    t.withdrawn_ids = ["u1"]
+    t = make_round_robin(player_ids=["u3", "u1", "u2"], withdrawn_ids=["u1"])
 
     assert t.active_player_ids == ["u3", "u2"]
 

@@ -146,7 +146,7 @@ def test_round_count_matches_total_rounds_with_a_withdrawal(count):
     """Tournament.total_rounds and the pairing agree once someone has withdrawn."""
     tournament = Tournament(
         id="t1", name="Club RR", organizer_id="u0", format="round_robin",
-        max_players=20, player_ids=ids(count), withdrawn_ids=["u1"],
+        max_players=20, player_ids=ids(count), withdrawn_ids=[ids(count)[0]],
     )
     players, withdrawn = tournament.player_ids, tournament.withdrawn_ids
 
