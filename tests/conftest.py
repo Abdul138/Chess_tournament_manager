@@ -3,6 +3,7 @@ import pytest
 from app.repositories.game_repository import GameRepository
 from app.repositories.tournament_repository import TournamentRepository
 from app.repositories.user_repository import UserRepository
+from app.services.tournament_service import TournamentService
 
 
 @pytest.fixture
@@ -21,3 +22,9 @@ def tournament_repo(tmp_path):
 def game_repo(tmp_path):
     """A game repository that writes to a temporary folder, not the real data/."""
     return GameRepository(tmp_path / "games.json")
+
+
+@pytest.fixture
+def tournament_service(tournament_repo):
+    """A tournament service that uses the temporary-folder tournament repository."""
+    return TournamentService(tournament_repo)
