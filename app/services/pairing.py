@@ -25,10 +25,11 @@ def round_robin_pairings(
 
     Important: the guarantees above only hold if player_ids and withdrawn_ids
     stay the same for every round. The schedule is worked out from the active
-    players each time this is called, so if someone withdraws after round 1
-    the later rounds are planned for a different group and pairs can repeat.
-    What should happen when a player withdraws mid-tournament is not decided
-    yet (see issue #7).
+    players each time this is called, so if someone withdrew after round 1
+    the later rounds would be planned for a different group and pairs could
+    repeat. That is why players may only withdraw before round 1 starts
+    (decided in issue #7); the tournament service is responsible for
+    enforcing that rule.
 
     Raises ValueError if a player id is repeated or round_number is out of range.
 

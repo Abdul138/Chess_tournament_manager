@@ -123,6 +123,37 @@ def test_round_robin_total_rounds(num_players, expected_rounds):
     assert t.total_rounds == expected_rounds
 
 
+def test_round_robin_total_rounds_ignores_withdrawn_players():
+    t = make_round_robin(player_ids=["u1", "u2", "u3", "u4", "u5"])
+    t.withdrawn_ids = ["u5"]
+
+    # 4 active players -> 3 rounds (not 5, which is what 5 players would need).
+    assert t.total_rounds == 3
+
+
+def test_withdrawn_id_not_in_player_ids_is_ignored():
+    t = make_round_robin(player_ids=["u1", "u2", "u3", "u4"])
+    t.withdrawn_ids = ["someone-else"]
+
+    assert t.total_rounds == 3
+
+
+def test_active_player_ids_keeps_registration_order():
+    t = make_round_robin(player_ids=["u3", "u1", "u2"])
+    t.withdrawn_ids = ["u1"]
+
+    assert t.active_player_ids == ["u3", "u2"]
+
+
+def test_swiss_total_rounds_is_not_affected_by_withdrawals():
+    t = Tournament(
+        id="t1", name="Open", organizer_id="o1", format="swiss", max_players=16,
+        num_rounds=5, player_ids=["u1", "u2", "u3"], withdrawn_ids=["u3"],
+    )
+
+    assert t.total_rounds == 5
+
+
 def test_invalid_format_raises():
     with pytest.raises(ValidationError):
         Tournament(id="t1", name="X", organizer_id="o1", format="knockout", max_players=8, num_rounds=3)
