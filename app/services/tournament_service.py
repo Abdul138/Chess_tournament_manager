@@ -38,7 +38,8 @@ class TournamentService:
         repository: TournamentRepository | None = None,
         game_repository: GameRepository | None = None,
     ) -> None:
-        # Tests pass in repositories that write to a temporary folder.
+        # self.repository is the tournament repository; self.game_repository
+        # stores the games. Tests pass in repositories that write to a temporary folder.
         # Without them, the real data/tournaments.json and data/games.json are used.
         self.repository = repository or TournamentRepository()
         self.game_repository = game_repository or GameRepository()
@@ -180,6 +181,7 @@ class TournamentService:
         if self.game_repository.list_by_tournament(tournament.id, round=round_number):
             raise ValueError(f"round {round_number} has already been paired")
 
+        # round_robin_pairings leaves out withdrawn players itself.
         pairs = round_robin_pairings(tournament.player_ids, round_number, tournament.withdrawn_ids)
         games = [
             Game(
@@ -192,6 +194,6 @@ class TournamentService:
             )
             for white_id, black_id in pairs
         ]
-        for game in games:
-            self.game_repository.add(game)
+        # One write for the whole round, so it can't end up half-saved.
+        self.game_repository.add_many(games)
         return games

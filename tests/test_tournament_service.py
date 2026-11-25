@@ -353,29 +353,28 @@ def test_pair_uses_round_robin_pairings(tournament_service):
     )
 
 
-def test_pair_odd_count_saves_a_bye(tournament_service):
+def test_pair_odd_count_saves_a_bye(tournament_service, game_repo):
     tournament = started_with_players(tournament_service, ["u1", "u2", "u3"])
 
     games = tournament_service.pair_current_round(tournament.id)
 
-    byes = [game for game in games if game.black_id is None]
+    byes = [game for game in game_repo.list_by_tournament(tournament.id) if game.black_id is None]
     assert len(games) == 2
     assert len(byes) == 1
     assert byes[0].result == "bye"
+    # Every player appears exactly once: two in the game, one with the bye.
+    seated = [p for game in games for p in (game.white_id, game.black_id) if p is not None]
+    assert sorted(seated) == ["u1", "u2", "u3"]
 
 
-def test_pair_leaves_out_withdrawn_players(tournament_service, tournament_repo):
+def test_pair_leaves_out_withdrawn_players(tournament_service):
     tournament = open_with_players(tournament_service, ["u1", "u2", "u3"])
-    # Simulate a withdrawal before the start (the service's withdraw action is #13).
-    tournament.withdrawn_ids = ["u3"]
-    tournament_repo.update(tournament)
+    tournament_service.withdraw_player(tournament.id, "u3")
     tournament_service.start_tournament(tournament.id)
 
     games = tournament_service.pair_current_round(tournament.id)
 
-    assert [(g.white_id, g.black_id) for g in games] in (
-        [("u1", "u2")], [("u2", "u1")]
-    )
+    assert [(g.white_id, g.black_id) for g in games] == [("u1", "u2")]
 
 
 def test_pair_gives_each_game_a_different_id(tournament_service):
@@ -383,7 +382,7 @@ def test_pair_gives_each_game_a_different_id(tournament_service):
 
     games = tournament_service.pair_current_round(tournament.id)
 
-    assert games[0].id != games[1].id
+    assert len({game.id for game in games}) == len(games)
     assert all(len(game.id) == 32 for game in games)  # uuid4().hex
 
 
@@ -395,6 +394,20 @@ def test_pair_same_round_twice_raises(tournament_service, game_repo):
         tournament_service.pair_current_round(tournament.id)
 
     assert game_repo.list_by_tournament(tournament.id) == first
+
+
+def test_pair_next_round_after_round_one(tournament_service, tournament_repo, game_repo):
+    tournament = started_with_players(tournament_service, ["u1", "u2", "u3", "u4"])
+    tournament_service.pair_current_round(tournament.id)
+    # Moving to round 2 isn't built yet (issue #18), so set it directly.
+    tournament = tournament_repo.get_by_id(tournament.id)
+    tournament.current_round = 2
+    tournament_repo.update(tournament)
+
+    games = tournament_service.pair_current_round(tournament.id)
+
+    assert {game.round for game in games} == {2}
+    assert len(game_repo.list_by_tournament(tournament.id)) == 4
 
 
 def test_pair_only_touches_its_own_tournament(tournament_service, game_repo):

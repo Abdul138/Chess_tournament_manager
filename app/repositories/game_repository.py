@@ -33,6 +33,16 @@ class GameRepository(BaseRepository[Game]):
         games.append(game)
         self.save_all(games)
 
+    def add_many(self, games: list[Game]) -> None:
+        """Save several new games with a single write to the file.
+
+        Used when pairing a round: either all of the round's games are
+        saved, or (if writing fails) none of them are.
+        """
+        all_games = self.load_all()
+        all_games.extend(games)
+        self.save_all(all_games)
+
     def update(self, game: Game) -> None:
         """Replace the stored game that has the same id (e.g. to record a result).
 

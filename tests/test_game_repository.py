@@ -24,6 +24,16 @@ def test_add_saves_game(game_repo):
     assert game_repo.load_all() == [game]
 
 
+def test_add_many_saves_all_games_after_existing_ones(game_repo):
+    existing = make_game("g1")
+    game_repo.add(existing)
+    new = [make_game("g2", round=2), make_game("g3", round=2, white_id="u3", black_id=None, result="bye")]
+
+    game_repo.add_many(new)
+
+    assert game_repo.load_all() == [existing, *new]
+
+
 def test_add_keeps_existing_games(game_repo):
     first = make_game("g1")
     second = make_game("g2", white_id="u3", black_id="u4")
