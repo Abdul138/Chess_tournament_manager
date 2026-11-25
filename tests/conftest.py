@@ -25,6 +25,6 @@ def game_repo(tmp_path):
 
 
 @pytest.fixture
-def tournament_service(tournament_repo):
-    """A tournament service that uses the temporary-folder tournament repository."""
-    return TournamentService(tournament_repo)
+def tournament_service(tournament_repo, game_repo):
+    """A tournament service that uses the temporary-folder repositories."""
+    return TournamentService(tournament_repo, game_repo)

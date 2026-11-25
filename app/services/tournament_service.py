@@ -16,22 +16,32 @@ Lifecycle covered so far:
     draft  ->  registration_open  ->  in_progress
 
 Players can register and withdraw only while registration is open.
+
+Once a tournament is in progress, the organizer calls pair_current_round to
+create the games for the current round (round robin only for now).
 """
 
 from typing import Literal
 from uuid import uuid4
 
-from app.models import Tournament, TournamentStatus
+from app.models import Game, Tournament, TournamentStatus
+from app.repositories.game_repository import GameRepository
 from app.repositories.tournament_repository import TournamentRepository
+from app.services.pairing import round_robin_pairings
 
 MIN_PLAYERS_TO_START = 2
 
 
 class TournamentService:
-    def __init__(self, repository: TournamentRepository | None = None) -> None:
-        # Tests pass in a repository that writes to a temporary folder.
-        # Without one, the real data/tournaments.json is used.
+    def __init__(
+        self,
+        repository: TournamentRepository | None = None,
+        game_repository: GameRepository | None = None,
+    ) -> None:
+        # Tests pass in repositories that write to a temporary folder.
+        # Without them, the real data/tournaments.json and data/games.json are used.
         self.repository = repository or TournamentRepository()
+        self.game_repository = game_repository or GameRepository()
 
     # ---------- Helpers ----------
 
@@ -138,7 +148,8 @@ class TournamentService:
         """Move a tournament from registration_open to in_progress, at round 1.
 
         Needs at least MIN_PLAYERS_TO_START active (not withdrawn) players.
-        Pairing round 1 and saving its games is a separate step (not built yet).
+        This doesn't create any games: the organizer pairs round 1 separately
+        with pair_current_round (decided in issue #14).
         """
         tournament = self.get_tournament(tournament_id)
         self._require_status(tournament, TournamentStatus.REGISTRATION_OPEN, "start")
@@ -149,3 +160,38 @@ class TournamentService:
         tournament.current_round = 1
         self.repository.update(tournament)
         return tournament
+
+    def pair_current_round(self, tournament_id: str) -> list[Game]:
+        """Create and save the games for the tournament's current round.
+
+        Each pair from round_robin_pairings becomes one Game with no result
+        yet. A bye is saved as black_id=None and result="bye", as the Game
+        model requires. Returns the new games in board order.
+
+        Raises ValueError if the tournament isn't in progress, isn't a round
+        robin (Swiss pairing isn't built yet), or the current round already
+        has games (pairing twice would create duplicate games).
+        """
+        tournament = self.get_tournament(tournament_id)
+        self._require_status(tournament, TournamentStatus.IN_PROGRESS, "pair round")
+        if tournament.format != "round_robin":
+            raise ValueError(f"cannot pair round: {tournament.format} pairing is not supported yet")
+        round_number = tournament.current_round
+        if self.game_repository.list_by_tournament(tournament.id, round=round_number):
+            raise ValueError(f"round {round_number} has already been paired")
+
+        pairs = round_robin_pairings(tournament.player_ids, round_number, tournament.withdrawn_ids)
+        games = [
+            Game(
+                id=uuid4().hex,
+                tournament_id=tournament.id,
+                round=round_number,
+                white_id=white_id,
+                black_id=black_id,
+                result="bye" if black_id is None else None,
+            )
+            for white_id, black_id in pairs
+        ]
+        for game in games:
+            self.game_repository.add(game)
+        return games
