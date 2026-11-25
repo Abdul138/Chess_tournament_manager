@@ -28,8 +28,8 @@ def round_robin_pairings(
     players each time this is called, so if someone withdrew after round 1
     the later rounds would be planned for a different group and pairs could
     repeat. That is why players may only withdraw before round 1 starts
-    (decided in issue #7); the tournament service is responsible for
-    enforcing that rule.
+    (decided in issue #7); TournamentService.withdraw_player enforces
+    that rule.
 
     Raises ValueError if a player id is repeated or round_number is out of range.
 

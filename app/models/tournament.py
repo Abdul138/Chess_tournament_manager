@@ -44,7 +44,7 @@ class Tournament(BaseModel):
             return self.num_rounds
         # Only active players count. The rule (issue #7) is that players may
         # only withdraw before round 1, so players who withdrew never play.
-        # The tournament service is meant to enforce that rule.
+        # TournamentService.withdraw_player enforces that rule.
         n = len(self.active_player_ids)
         if n < 2:
             return 0

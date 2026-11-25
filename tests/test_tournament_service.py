@@ -149,9 +149,116 @@ def test_register_when_full_raises(tournament_service, tournament_repo):
     assert tournament_repo.get_by_id(tournament.id).player_ids == ["u1", "u2"]
 
 
+def test_withdrawn_players_do_not_count_towards_max_players(tournament_service):
+    tournament = open_with_players(tournament_service, ["u1", "u2"], max_players=2)
+    tournament_service.withdraw_player(tournament.id, "u2")
+
+    updated = tournament_service.register_player(tournament.id, "u3")
+
+    assert updated.player_ids == ["u1", "u2", "u3"]
+    assert updated.active_player_ids == ["u1", "u3"]
+
+
+def test_withdrawn_player_can_register_again(tournament_service, tournament_repo):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.withdraw_player(tournament.id, "u1")
+
+    updated = tournament_service.register_player(tournament.id, "u1")
+
+    # Taken out of withdrawn_ids, and not added to player_ids a second time.
+    assert updated.player_ids == ["u1", "u2"]
+    assert updated.withdrawn_ids == []
+    assert tournament_repo.get_by_id(tournament.id) == updated
+
+
+def test_returning_player_keeps_their_original_place(tournament_service):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.withdraw_player(tournament.id, "u1")
+    tournament_service.register_player(tournament.id, "u3")
+
+    updated = tournament_service.register_player(tournament.id, "u1")
+
+    # u1 comes back in their first spot, not after u3.
+    assert updated.active_player_ids == ["u1", "u2", "u3"]
+
+
+def test_withdraw_register_withdraw_again(tournament_service):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.withdraw_player(tournament.id, "u1")
+    tournament_service.register_player(tournament.id, "u1")
+
+    updated = tournament_service.withdraw_player(tournament.id, "u1")
+
+    assert updated.player_ids == ["u1", "u2"]
+    assert updated.withdrawn_ids == ["u1"]
+
+
+def test_withdrawn_player_registering_again_when_full_raises(tournament_service, tournament_repo):
+    tournament = open_with_players(tournament_service, ["u1", "u2"], max_players=2)
+    tournament_service.withdraw_player(tournament.id, "u1")
+    tournament_service.register_player(tournament.id, "u3")
+
+    with pytest.raises(ValueError, match="full"):
+        tournament_service.register_player(tournament.id, "u1")
+
+    assert tournament_repo.get_by_id(tournament.id).withdrawn_ids == ["u1"]
+
+
 def test_register_unknown_tournament_raises(tournament_service):
     with pytest.raises(ValueError, match="no tournament"):
         tournament_service.register_player("missing", "u1")
+
+
+# ---------- withdraw_player ----------
+
+def test_withdraw_keeps_player_id_and_adds_to_withdrawn(tournament_service, tournament_repo):
+    tournament = open_with_players(tournament_service, ["u1", "u2", "u3"])
+
+    updated = tournament_service.withdraw_player(tournament.id, "u2")
+
+    assert updated.player_ids == ["u1", "u2", "u3"]
+    assert updated.withdrawn_ids == ["u2"]
+    assert updated.active_player_ids == ["u1", "u3"]
+    assert tournament_repo.get_by_id(tournament.id) == updated
+
+
+def test_withdraw_while_draft_raises(tournament_service):
+    tournament = create_round_robin(tournament_service)
+
+    with pytest.raises(ValueError, match="cannot withdraw"):
+        tournament_service.withdraw_player(tournament.id, "u1")
+
+
+def test_withdraw_after_start_raises(tournament_service, tournament_repo):
+    tournament = open_with_players(tournament_service, ["u1", "u2", "u3"])
+    tournament_service.start_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="cannot withdraw"):
+        tournament_service.withdraw_player(tournament.id, "u3")
+
+    assert tournament_repo.get_by_id(tournament.id).withdrawn_ids == []
+
+
+def test_withdraw_unregistered_player_raises(tournament_service):
+    tournament = open_with_players(tournament_service, ["u1"])
+
+    with pytest.raises(ValueError, match="not registered"):
+        tournament_service.withdraw_player(tournament.id, "u9")
+
+
+def test_withdraw_twice_raises(tournament_service, tournament_repo):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.withdraw_player(tournament.id, "u1")
+
+    with pytest.raises(ValueError, match="already withdrawn"):
+        tournament_service.withdraw_player(tournament.id, "u1")
+
+    assert tournament_repo.get_by_id(tournament.id).withdrawn_ids == ["u1"]
+
+
+def test_withdraw_unknown_tournament_raises(tournament_service):
+    with pytest.raises(ValueError, match="no tournament"):
+        tournament_service.withdraw_player("missing", "u1")
 
 
 # ---------- start_tournament ----------
@@ -178,11 +285,9 @@ def test_start_with_fewer_than_two_players_raises(tournament_service, tournament
     assert tournament_repo.get_by_id(tournament.id).status == TournamentStatus.REGISTRATION_OPEN
 
 
-def test_start_counts_only_active_players(tournament_service, tournament_repo):
+def test_start_counts_only_active_players(tournament_service):
     tournament = open_with_players(tournament_service, ["u1", "u2"])
-    # Simulate a withdrawal (there's no withdraw action in the service yet).
-    tournament.withdrawn_ids = ["u2"]
-    tournament_repo.update(tournament)
+    tournament_service.withdraw_player(tournament.id, "u2")
 
     with pytest.raises(ValueError, match="at least 2 players"):
         tournament_service.start_tournament(tournament.id)

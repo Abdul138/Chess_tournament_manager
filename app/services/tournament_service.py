@@ -14,6 +14,8 @@ auth layer, as decided in issue #8.
 Lifecycle covered so far:
 
     draft  ->  registration_open  ->  in_progress
+
+Players can register and withdraw only while registration is open.
 """
 
 from typing import Literal
@@ -87,17 +89,48 @@ class TournamentService:
     def register_player(self, tournament_id: str, player_id: str) -> Tournament:
         """Add a player to a tournament whose registration is open.
 
+        A player who withdrew can register again while registration is open:
+        they are taken out of withdrawn_ids, and their id is not added to
+        player_ids a second time (decided in issue #13). That means they keep
+        their original place in player_ids, rather than moving to the end.
+
         Raises ValueError if registration isn't open, the player is already
-        registered, or the tournament is full (max_players reached).
+        registered and still active (not withdrawn), or the tournament is full. Only active (not withdrawn)
+        players count towards max_players.
         """
         tournament = self.get_tournament(tournament_id)
         self._require_status(tournament, TournamentStatus.REGISTRATION_OPEN, "register")
-        if player_id in tournament.player_ids:
+        if player_id in tournament.active_player_ids:
             raise ValueError(f"player {player_id!r} is already registered")
-        if len(tournament.player_ids) >= tournament.max_players:
+        if len(tournament.active_player_ids) >= tournament.max_players:
             raise ValueError(f"tournament is full ({tournament.max_players} players)")
 
-        tournament.player_ids.append(player_id)
+        if player_id in tournament.withdrawn_ids:
+            # Coming back after withdrawing: their id is still in player_ids.
+            tournament.withdrawn_ids.remove(player_id)
+        else:
+            tournament.player_ids.append(player_id)
+        self.repository.update(tournament)
+        return tournament
+
+    def withdraw_player(self, tournament_id: str, player_id: str) -> Tournament:
+        """Withdraw a registered player while registration is still open.
+
+        The player's id stays in player_ids and is added to withdrawn_ids.
+        Withdrawing is only allowed in registration_open, so withdrawn_ids
+        can never change once round 1 has started (decided in issues #7 and #13).
+
+        Raises ValueError if registration isn't open, the player isn't
+        registered, or the player has already withdrawn.
+        """
+        tournament = self.get_tournament(tournament_id)
+        self._require_status(tournament, TournamentStatus.REGISTRATION_OPEN, "withdraw")
+        if player_id not in tournament.player_ids:
+            raise ValueError(f"player {player_id!r} is not registered")
+        if player_id in tournament.withdrawn_ids:
+            raise ValueError(f"player {player_id!r} has already withdrawn")
+
+        tournament.withdrawn_ids.append(player_id)
         self.repository.update(tournament)
         return tournament
 
