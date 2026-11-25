@@ -91,10 +91,11 @@ class TournamentService:
 
         A player who withdrew can register again while registration is open:
         they are taken out of withdrawn_ids, and their id is not added to
-        player_ids a second time (decided in issue #13).
+        player_ids a second time (decided in issue #13). That means they keep
+        their original place in player_ids, rather than moving to the end.
 
         Raises ValueError if registration isn't open, the player is already
-        registered, or the tournament is full. Only active (not withdrawn)
+        registered and still active (not withdrawn), or the tournament is full. Only active (not withdrawn)
         players count towards max_players.
         """
         tournament = self.get_tournament(tournament_id)

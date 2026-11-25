@@ -171,6 +171,28 @@ def test_withdrawn_player_can_register_again(tournament_service, tournament_repo
     assert tournament_repo.get_by_id(tournament.id) == updated
 
 
+def test_returning_player_keeps_their_original_place(tournament_service):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.withdraw_player(tournament.id, "u1")
+    tournament_service.register_player(tournament.id, "u3")
+
+    updated = tournament_service.register_player(tournament.id, "u1")
+
+    # u1 comes back in their first spot, not after u3.
+    assert updated.active_player_ids == ["u1", "u2", "u3"]
+
+
+def test_withdraw_register_withdraw_again(tournament_service):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.withdraw_player(tournament.id, "u1")
+    tournament_service.register_player(tournament.id, "u1")
+
+    updated = tournament_service.withdraw_player(tournament.id, "u1")
+
+    assert updated.player_ids == ["u1", "u2"]
+    assert updated.withdrawn_ids == ["u1"]
+
+
 def test_withdrawn_player_registering_again_when_full_raises(tournament_service, tournament_repo):
     tournament = open_with_players(tournament_service, ["u1", "u2"], max_players=2)
     tournament_service.withdraw_player(tournament.id, "u1")
