@@ -450,3 +450,111 @@ def test_pair_swiss_raises(tournament_service, game_repo):
 def test_pair_unknown_tournament_raises(tournament_service):
     with pytest.raises(ValueError, match="no tournament"):
         tournament_service.pair_current_round("missing")
+
+
+# ---------- record_result ----------
+
+def paired_round_one(service, player_ids=("u1", "u2", "u3", "u4")):
+    """Start a round robin with these players and pair round 1.
+
+    Returns the tournament and its round 1 games.
+    """
+    tournament = started_with_players(service, list(player_ids))
+    games = service.pair_current_round(tournament.id)
+    return tournament, games
+
+
+@pytest.mark.parametrize("result", ["1-0", "0-1", "1/2-1/2"])
+def test_record_result_saves_the_result(tournament_service, game_repo, result):
+    _, games = paired_round_one(tournament_service)
+    game = games[0]
+
+    updated = tournament_service.record_result(game.id, result)
+
+    assert updated.result == result
+    assert game_repo.get_by_id(game.id) == updated
+
+
+def test_record_result_keeps_the_rest_of_the_game(tournament_service, game_repo):
+    _, games = paired_round_one(tournament_service)
+    game = games[0]
+
+    tournament_service.record_result(game.id, "1-0")
+
+    stored = game_repo.get_by_id(game.id)
+    assert stored.model_copy(update={"result": None}) == game
+
+
+def test_record_result_only_changes_that_game(tournament_service, game_repo):
+    _, games = paired_round_one(tournament_service)
+
+    tournament_service.record_result(games[0].id, "1-0")
+
+    assert game_repo.get_by_id(games[1].id).result is None
+
+
+def test_record_result_twice_replaces_the_old_result(tournament_service, game_repo):
+    # Decided in #17: a wrong result can be corrected.
+    _, games = paired_round_one(tournament_service)
+    game = games[0]
+    tournament_service.record_result(game.id, "1-0")
+
+    tournament_service.record_result(game.id, "1/2-1/2")
+
+    assert game_repo.get_by_id(game.id).result == "1/2-1/2"
+    assert len(game_repo.load_all()) == len(games)
+
+
+def test_record_result_for_an_earlier_round(tournament_service, tournament_repo, game_repo):
+    # Decided in #17: earlier rounds can still get (or correct) results.
+    tournament, round_one = paired_round_one(tournament_service)
+    # Moving to round 2 isn't built yet (issue #18), so set it directly.
+    stored = tournament_repo.get_by_id(tournament.id)
+    stored.current_round = 2
+    tournament_repo.update(stored)
+    tournament_service.pair_current_round(tournament.id)
+
+    tournament_service.record_result(round_one[0].id, "0-1")
+
+    assert game_repo.get_by_id(round_one[0].id).result == "0-1"
+
+
+@pytest.mark.parametrize("result", ["bye", None, "1-1", "", "draw"])
+def test_record_invalid_result_raises(tournament_service, game_repo, result):
+    _, games = paired_round_one(tournament_service)
+
+    with pytest.raises(ValueError, match="invalid result"):
+        tournament_service.record_result(games[0].id, result)
+
+    assert game_repo.get_by_id(games[0].id).result is None
+
+
+def test_record_result_for_a_bye_raises(tournament_service, game_repo):
+    _, games = paired_round_one(tournament_service, ("u1", "u2", "u3"))
+    bye = next(game for game in games if game.black_id is None)
+
+    with pytest.raises(ValueError, match="bye"):
+        tournament_service.record_result(bye.id, "1-0")
+
+    assert game_repo.get_by_id(bye.id).result == "bye"
+
+
+def test_record_result_unknown_game_raises(tournament_service):
+    with pytest.raises(ValueError, match="no game"):
+        tournament_service.record_result("missing", "1-0")
+
+
+@pytest.mark.parametrize("status", [TournamentStatus.FINISHED, TournamentStatus.CANCELLED])
+def test_record_result_when_not_in_progress_raises(
+    tournament_service, tournament_repo, game_repo, status
+):
+    tournament, games = paired_round_one(tournament_service)
+    # Finishing and cancelling aren't built yet (#18, #19), so set it directly.
+    stored = tournament_repo.get_by_id(tournament.id)
+    stored.status = status
+    tournament_repo.update(stored)
+
+    with pytest.raises(ValueError, match="cannot record result"):
+        tournament_service.record_result(games[0].id, "1-0")
+
+    assert game_repo.get_by_id(games[0].id).result is None

@@ -18,7 +18,8 @@ Lifecycle covered so far:
 Players can register and withdraw only while registration is open.
 
 Once a tournament is in progress, the organizer calls pair_current_round to
-create the games for the current round (round robin only for now).
+create the games for the current round (round robin only for now), and
+record_result to enter the result of each game.
 """
 
 from typing import Literal
@@ -30,6 +31,12 @@ from app.repositories.tournament_repository import TournamentRepository
 from app.services.pairing import round_robin_pairings
 
 MIN_PLAYERS_TO_START = 2
+
+# The results an organizer can enter for a played game. "bye" is not here:
+# byes get their result automatically when the round is paired.
+# A forfeit (a player didn't show up) is entered as a win for the other
+# player, "1-0" or "0-1" (decided in issue #17).
+PLAYABLE_RESULTS = ("1-0", "0-1", "1/2-1/2")
 
 
 class TournamentService:
@@ -197,3 +204,33 @@ class TournamentService:
         # One write for the whole round, so it can't end up half-saved.
         self.game_repository.add_many(games)
         return games
+
+    def record_result(self, game_id: str, result: str) -> Game:
+        """Enter (or correct) the result of a game and save it.
+
+        result must be "1-0" (white won), "0-1" (black won) or "1/2-1/2"
+        (draw). Decided in issue #17:
+        - A result can be changed: calling this again on the same game
+          replaces the old result (e.g. the organizer typed the wrong one).
+        - Results can be entered for any round that has been paired, not
+          only the current one.
+        - Forfeits use "1-0" / "0-1".
+
+        Raises ValueError if the result isn't one of those three, the game
+        doesn't exist, the game is a bye, or its tournament isn't in progress.
+        """
+        if result not in PLAYABLE_RESULTS:
+            raise ValueError(
+                f"invalid result {result!r}: it must be one of {', '.join(PLAYABLE_RESULTS)}"
+            )
+        game = self.game_repository.get_by_id(game_id)
+        if game is None:
+            raise ValueError(f"no game with id {game_id!r}")
+        if game.black_id is None:
+            raise ValueError("cannot record a result for a bye")
+        tournament = self.get_tournament(game.tournament_id)
+        self._require_status(tournament, TournamentStatus.IN_PROGRESS, "record result")
+
+        game.result = result
+        self.game_repository.update(game)
+        return game
