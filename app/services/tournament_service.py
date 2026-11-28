@@ -267,17 +267,20 @@ class TournamentService:
           organizer calls finish_tournament instead.
 
         Raises ValueError if the tournament isn't in progress, the current
-        round hasn't been paired, some of its games have no result yet, or
-        the current round is already the last one.
+        round is already the last one, or the current round hasn't been
+        paired or still has games without a result.
+
+        Only round robin can reach this for now: Swiss rounds can't be paired
+        yet, so a Swiss tournament is always refused with "not been paired".
         """
         tournament = self.get_tournament(tournament_id)
         self._require_status(tournament, TournamentStatus.IN_PROGRESS, "advance round")
-        self._require_current_round_complete(tournament, "advance round")
         if tournament.current_round >= tournament.total_rounds:
             raise ValueError(
                 f"cannot advance round: round {tournament.current_round} is the last round, "
                 "use finish_tournament instead"
             )
+        self._require_current_round_complete(tournament, "advance round")
 
         tournament.current_round += 1
         self.repository.update(tournament)
@@ -292,6 +295,9 @@ class TournamentService:
         Raises ValueError if the tournament isn't in progress, the current
         round isn't the last one, or the last round hasn't been paired or
         still has games without a result.
+
+        Once finished, results can no longer be entered or corrected, because
+        record_result needs the tournament to be in progress.
         """
         tournament = self.get_tournament(tournament_id)
         self._require_status(tournament, TournamentStatus.IN_PROGRESS, "finish")
