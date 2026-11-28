@@ -13,13 +13,18 @@ auth layer, as decided in issue #8.
 
 Lifecycle covered so far:
 
-    draft  ->  registration_open  ->  in_progress
+    draft  ->  registration_open  ->  in_progress  ->  finished
 
 Players can register and withdraw only while registration is open.
 
-Once a tournament is in progress, the organizer calls pair_current_round to
-create the games for the current round (round robin only for now), and
-record_result to enter the result of each game.
+Once a tournament is in progress, each round goes like this, with every step
+started by the organizer (decided in issues #14 and #18):
+
+    pair_current_round  ->  record_result (once per game)  ->  advance_round
+
+After the last round's results are in, the organizer calls finish_tournament
+instead of advance_round. Nothing happens automatically: entering the last
+result doesn't advance, and advancing doesn't pair the next round.
 """
 
 from typing import Literal
@@ -66,6 +71,21 @@ class TournamentService:
             raise ValueError(
                 f"cannot {action}: tournament is {tournament.status.value!r}, "
                 f"it must be {expected.value!r}"
+            )
+
+    def _require_current_round_complete(self, tournament: Tournament, action: str) -> None:
+        """Raise ValueError unless the current round is paired and every game has a result.
+
+        Byes already have result "bye", so they count as complete.
+        """
+        round_number = tournament.current_round
+        games = self.game_repository.list_by_tournament(tournament.id, round=round_number)
+        if not games:
+            raise ValueError(f"cannot {action}: round {round_number} has not been paired yet")
+        missing = sum(1 for game in games if game.result is None)
+        if missing:
+            raise ValueError(
+                f"cannot {action}: {missing} game(s) in round {round_number} have no result yet"
             )
 
     # ---------- Actions ----------
@@ -234,3 +254,54 @@ class TournamentService:
         game.result = result
         self.game_repository.update(game)
         return game
+
+    def advance_round(self, tournament_id: str) -> Tournament:
+        """Move an in-progress tournament on to its next round.
+
+        Decided in issue #18:
+        - The organizer calls this when every result of the current round has
+          been entered. It is never called automatically.
+        - It only adds 1 to current_round. It does not create the next
+          round's games: the organizer calls pair_current_round for that.
+        - It does not finish the tournament. After the last round, the
+          organizer calls finish_tournament instead.
+
+        Raises ValueError if the tournament isn't in progress, the current
+        round hasn't been paired, some of its games have no result yet, or
+        the current round is already the last one.
+        """
+        tournament = self.get_tournament(tournament_id)
+        self._require_status(tournament, TournamentStatus.IN_PROGRESS, "advance round")
+        self._require_current_round_complete(tournament, "advance round")
+        if tournament.current_round >= tournament.total_rounds:
+            raise ValueError(
+                f"cannot advance round: round {tournament.current_round} is the last round, "
+                "use finish_tournament instead"
+            )
+
+        tournament.current_round += 1
+        self.repository.update(tournament)
+        return tournament
+
+    def finish_tournament(self, tournament_id: str) -> Tournament:
+        """Mark an in-progress tournament as finished once its last round is complete.
+
+        Finishing is its own action, called by the organizer (decided in issue #18).
+        current_round stays at the last round.
+
+        Raises ValueError if the tournament isn't in progress, the current
+        round isn't the last one, or the last round hasn't been paired or
+        still has games without a result.
+        """
+        tournament = self.get_tournament(tournament_id)
+        self._require_status(tournament, TournamentStatus.IN_PROGRESS, "finish")
+        if tournament.current_round < tournament.total_rounds:
+            raise ValueError(
+                f"cannot finish: round {tournament.current_round} of "
+                f"{tournament.total_rounds} is not the last round"
+            )
+        self._require_current_round_complete(tournament, "finish")
+
+        tournament.status = TournamentStatus.FINISHED
+        self.repository.update(tournament)
+        return tournament

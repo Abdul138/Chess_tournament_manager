@@ -396,13 +396,11 @@ def test_pair_same_round_twice_raises(tournament_service, game_repo):
     assert game_repo.list_by_tournament(tournament.id) == first
 
 
-def test_pair_next_round_after_round_one(tournament_service, tournament_repo, game_repo):
+def test_pair_next_round_after_round_one(tournament_service, game_repo):
     tournament = started_with_players(tournament_service, ["u1", "u2", "u3", "u4"])
-    tournament_service.pair_current_round(tournament.id)
-    # Moving to round 2 isn't built yet (issue #18), so set it directly.
-    tournament = tournament_repo.get_by_id(tournament.id)
-    tournament.current_round = 2
-    tournament_repo.update(tournament)
+    for game in tournament_service.pair_current_round(tournament.id):
+        tournament_service.record_result(game.id, "1-0")
+    tournament_service.advance_round(tournament.id)
 
     games = tournament_service.pair_current_round(tournament.id)
 
@@ -505,13 +503,12 @@ def test_record_result_twice_replaces_the_old_result(tournament_service, game_re
     assert len(game_repo.load_all()) == len(games)
 
 
-def test_record_result_for_an_earlier_round(tournament_service, tournament_repo, game_repo):
+def test_record_result_for_an_earlier_round(tournament_service, game_repo):
     # Decided in #17: earlier rounds can still get (or correct) results.
     tournament, round_one = paired_round_one(tournament_service)
-    # Moving to round 2 isn't built yet (issue #18), so set it directly.
-    stored = tournament_repo.get_by_id(tournament.id)
-    stored.current_round = 2
-    tournament_repo.update(stored)
+    for game in round_one:
+        tournament_service.record_result(game.id, "1-0")
+    tournament_service.advance_round(tournament.id)
     tournament_service.pair_current_round(tournament.id)
 
     tournament_service.record_result(round_one[0].id, "0-1")
@@ -549,7 +546,8 @@ def test_record_result_when_not_in_progress_raises(
     tournament_service, tournament_repo, game_repo, status
 ):
     tournament, games = paired_round_one(tournament_service)
-    # Finishing and cancelling aren't built yet (#18, #19), so set it directly.
+    # Set the status directly so both cases are tested the same way
+    # (cancelling isn't built yet, #19).
     stored = tournament_repo.get_by_id(tournament.id)
     stored.status = status
     tournament_repo.update(stored)
@@ -558,3 +556,191 @@ def test_record_result_when_not_in_progress_raises(
         tournament_service.record_result(games[0].id, "1-0")
 
     assert game_repo.get_by_id(games[0].id).result is None
+
+
+# ---------- advance_round ----------
+
+def complete_current_round(service, tournament_id, result="1-0"):
+    """Pair the current round and enter the same result for every game (byes keep "bye")."""
+    for game in service.pair_current_round(tournament_id):
+        if game.result is None:
+            service.record_result(game.id, result)
+
+
+def test_advance_round_moves_to_the_next_round(tournament_service, tournament_repo):
+    tournament, games = paired_round_one(tournament_service)
+    for game in games:
+        tournament_service.record_result(game.id, "1/2-1/2")
+
+    advanced = tournament_service.advance_round(tournament.id)
+
+    assert advanced.current_round == 2
+    assert advanced.status == TournamentStatus.IN_PROGRESS
+    assert tournament_repo.get_by_id(tournament.id) == advanced
+
+
+def test_advance_round_does_not_pair_the_next_round(tournament_service, game_repo):
+    # Decided in #18: pairing stays a separate step.
+    tournament, games = paired_round_one(tournament_service)
+    for game in games:
+        tournament_service.record_result(game.id, "1-0")
+
+    tournament_service.advance_round(tournament.id)
+
+    assert game_repo.list_by_tournament(tournament.id, round=2) == []
+
+
+def test_advance_round_counts_a_bye_as_complete(tournament_service):
+    # Three players: one game and one bye each round.
+    tournament, games = paired_round_one(tournament_service, ("u1", "u2", "u3"))
+    for game in games:
+        if game.result is None:
+            tournament_service.record_result(game.id, "0-1")
+
+    assert tournament_service.advance_round(tournament.id).current_round == 2
+
+
+def test_recording_the_last_result_does_not_advance(tournament_service, tournament_repo):
+    # Decided in #18: only the organizer advances the round.
+    tournament, games = paired_round_one(tournament_service)
+    for game in games:
+        tournament_service.record_result(game.id, "1-0")
+
+    assert tournament_repo.get_by_id(tournament.id).current_round == 1
+
+
+def test_advance_round_before_pairing_raises(tournament_service, tournament_repo):
+    tournament = started_with_players(tournament_service, ["u1", "u2"])
+
+    with pytest.raises(ValueError, match="round 1 has not been paired"):
+        tournament_service.advance_round(tournament.id)
+
+    assert tournament_repo.get_by_id(tournament.id).current_round == 1
+
+
+def test_advance_round_with_missing_results_raises(tournament_service, tournament_repo):
+    tournament, games = paired_round_one(tournament_service)
+    tournament_service.record_result(games[0].id, "1-0")  # games[1] has no result
+
+    with pytest.raises(ValueError, match="1 game"):
+        tournament_service.advance_round(tournament.id)
+
+    assert tournament_repo.get_by_id(tournament.id).current_round == 1
+
+
+def test_advance_past_the_last_round_raises(tournament_service, tournament_repo):
+    # Two players: a round robin with only one round.
+    tournament = started_with_players(tournament_service, ["u1", "u2"])
+    complete_current_round(tournament_service, tournament.id)
+
+    with pytest.raises(ValueError, match="last round, use finish_tournament"):
+        tournament_service.advance_round(tournament.id)
+
+    stored = tournament_repo.get_by_id(tournament.id)
+    assert stored.current_round == 1
+    assert stored.status == TournamentStatus.IN_PROGRESS
+
+
+@pytest.mark.parametrize("make", [create_round_robin, open_tournament])
+def test_advance_round_before_start_raises(tournament_service, make):
+    tournament = make(tournament_service)
+
+    with pytest.raises(ValueError, match="cannot advance round"):
+        tournament_service.advance_round(tournament.id)
+
+
+def test_advance_round_unknown_tournament_raises(tournament_service):
+    with pytest.raises(ValueError, match="no tournament"):
+        tournament_service.advance_round("missing")
+
+
+# ---------- finish_tournament ----------
+
+def test_play_a_whole_round_robin_and_finish(tournament_service, tournament_repo, game_repo):
+    # Four players: 3 rounds, 2 games each.
+    tournament = started_with_players(tournament_service, ["u1", "u2", "u3", "u4"])
+    for round_number in range(1, tournament.total_rounds + 1):
+        complete_current_round(tournament_service, tournament.id)
+        if round_number < tournament.total_rounds:
+            tournament_service.advance_round(tournament.id)
+
+    finished = tournament_service.finish_tournament(tournament.id)
+
+    assert finished.status == TournamentStatus.FINISHED
+    assert finished.current_round == 3
+    assert tournament_repo.get_by_id(tournament.id) == finished
+    assert len(game_repo.list_by_tournament(tournament.id)) == 6
+
+
+def test_finish_with_an_odd_number_of_players(tournament_service):
+    # Three players: 3 rounds, each with one game and one bye.
+    tournament = started_with_players(tournament_service, ["u1", "u2", "u3"])
+    for round_number in range(1, 4):
+        complete_current_round(tournament_service, tournament.id)
+        if round_number < 3:
+            tournament_service.advance_round(tournament.id)
+
+    assert tournament_service.finish_tournament(tournament.id).status == TournamentStatus.FINISHED
+
+
+def test_finish_before_the_last_round_raises(tournament_service, tournament_repo):
+    tournament, games = paired_round_one(tournament_service)
+    for game in games:
+        tournament_service.record_result(game.id, "1-0")
+
+    with pytest.raises(ValueError, match="round 1 of 3 is not the last round"):
+        tournament_service.finish_tournament(tournament.id)
+
+    assert tournament_repo.get_by_id(tournament.id).status == TournamentStatus.IN_PROGRESS
+
+
+def test_finish_before_the_last_round_is_paired_raises(tournament_service, tournament_repo):
+    tournament = started_with_players(tournament_service, ["u1", "u2"])
+
+    with pytest.raises(ValueError, match="has not been paired"):
+        tournament_service.finish_tournament(tournament.id)
+
+    assert tournament_repo.get_by_id(tournament.id).status == TournamentStatus.IN_PROGRESS
+
+
+def test_finish_with_missing_results_raises(tournament_service, tournament_repo):
+    tournament = started_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.pair_current_round(tournament.id)
+
+    with pytest.raises(ValueError, match="have no result yet"):
+        tournament_service.finish_tournament(tournament.id)
+
+    assert tournament_repo.get_by_id(tournament.id).status == TournamentStatus.IN_PROGRESS
+
+
+def test_finish_twice_raises(tournament_service):
+    tournament = started_with_players(tournament_service, ["u1", "u2"])
+    complete_current_round(tournament_service, tournament.id)
+    tournament_service.finish_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="cannot finish"):
+        tournament_service.finish_tournament(tournament.id)
+
+
+def test_no_actions_after_finishing(tournament_service):
+    tournament = started_with_players(tournament_service, ["u1", "u2"])
+    complete_current_round(tournament_service, tournament.id)
+    tournament_service.finish_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="cannot advance round"):
+        tournament_service.advance_round(tournament.id)
+    with pytest.raises(ValueError, match="cannot pair round"):
+        tournament_service.pair_current_round(tournament.id)
+
+
+@pytest.mark.parametrize("make", [create_round_robin, open_tournament])
+def test_finish_before_start_raises(tournament_service, make):
+    tournament = make(tournament_service)
+
+    with pytest.raises(ValueError, match="cannot finish"):
+        tournament_service.finish_tournament(tournament.id)
+
+
+def test_finish_unknown_tournament_raises(tournament_service):
+    with pytest.raises(ValueError, match="no tournament"):
+        tournament_service.finish_tournament("missing")
