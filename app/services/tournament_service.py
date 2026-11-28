@@ -15,6 +15,9 @@ Lifecycle covered so far:
 
     draft  ->  registration_open  ->  in_progress  ->  finished
 
+The organizer can also cancel a tournament at any point before it is
+finished (cancel_tournament). Cancelling is final.
+
 Players can register and withdraw only while registration is open.
 
 Once a tournament is in progress, each round goes like this, with every step
@@ -310,5 +313,25 @@ class TournamentService:
         self._require_current_round_complete(tournament, "finish")
 
         tournament.status = TournamentStatus.FINISHED
+        self.repository.update(tournament)
+        return tournament
+
+    def cancel_tournament(self, tournament_id: str) -> Tournament:
+        """Cancel a tournament that hasn't finished yet.
+
+        Decided in issue #19:
+        - It can be cancelled from draft, registration_open or in_progress.
+        - Its games are kept as a record of what happened, not deleted.
+        - Cancelling is final. Every other action checks the status first,
+          so a cancelled tournament can't be reopened, joined, started,
+          paired, advanced or finished. To run it again, create a new one.
+
+        Raises ValueError if the tournament is already finished or cancelled.
+        """
+        tournament = self.get_tournament(tournament_id)
+        if tournament.status in (TournamentStatus.FINISHED, TournamentStatus.CANCELLED):
+            raise ValueError(f"cannot cancel: tournament is already {tournament.status.value!r}")
+
+        tournament.status = TournamentStatus.CANCELLED
         self.repository.update(tournament)
         return tournament

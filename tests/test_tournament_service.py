@@ -546,8 +546,7 @@ def test_record_result_when_not_in_progress_raises(
     tournament_service, tournament_repo, game_repo, status
 ):
     tournament, games = paired_round_one(tournament_service)
-    # Set the status directly so both cases are tested the same way
-    # (cancelling isn't built yet, #19).
+    # Set the status directly so both cases are tested the same way.
     stored = tournament_repo.get_by_id(tournament.id)
     stored.status = status
     tournament_repo.update(stored)
@@ -772,3 +771,107 @@ def test_finish_before_start_raises(tournament_service, make):
 def test_finish_unknown_tournament_raises(tournament_service):
     with pytest.raises(ValueError, match="no tournament"):
         tournament_service.finish_tournament("missing")
+
+
+# ---------- cancel_tournament ----------
+
+def test_cancel_a_draft(tournament_service, tournament_repo):
+    tournament = create_round_robin(tournament_service)
+
+    cancelled = tournament_service.cancel_tournament(tournament.id)
+
+    assert cancelled.status == TournamentStatus.CANCELLED
+    assert tournament_repo.get_by_id(tournament.id) == cancelled
+
+
+def test_cancel_keeps_the_players(tournament_service, tournament_repo):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+
+    tournament_service.cancel_tournament(tournament.id)
+
+    assert tournament_repo.get_by_id(tournament.id).player_ids == ["u1", "u2"]
+
+
+def test_cancel_in_progress_keeps_the_games(tournament_service, tournament_repo, game_repo):
+    # Decided in #19: games stay as a record of what happened.
+    tournament, games = paired_round_one(tournament_service)
+    tournament_service.record_result(games[0].id, "1-0")
+
+    tournament_service.cancel_tournament(tournament.id)
+
+    stored = tournament_repo.get_by_id(tournament.id)
+    assert stored.status == TournamentStatus.CANCELLED
+    assert stored.current_round == 1
+    assert game_repo.list_by_tournament(tournament.id) == [
+        games[0].model_copy(update={"result": "1-0"}),
+        games[1],
+    ]
+
+
+def test_cancel_only_changes_that_tournament(tournament_service, tournament_repo):
+    first = open_tournament(tournament_service)
+    second = open_tournament(tournament_service)
+
+    tournament_service.cancel_tournament(first.id)
+
+    assert tournament_repo.get_by_id(second.id).status == TournamentStatus.REGISTRATION_OPEN
+
+
+def test_cancel_twice_raises(tournament_service):
+    tournament = create_round_robin(tournament_service)
+    tournament_service.cancel_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="already 'cancelled'"):
+        tournament_service.cancel_tournament(tournament.id)
+
+
+def test_cancel_finished_raises(tournament_service, tournament_repo):
+    tournament = started_with_players(tournament_service, ["u1", "u2"])
+    complete_current_round(tournament_service, tournament.id)
+    tournament_service.finish_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="already 'finished'"):
+        tournament_service.cancel_tournament(tournament.id)
+
+    assert tournament_repo.get_by_id(tournament.id).status == TournamentStatus.FINISHED
+
+
+def test_cancel_unknown_tournament_raises(tournament_service):
+    with pytest.raises(ValueError, match="no tournament"):
+        tournament_service.cancel_tournament("missing")
+
+
+def test_cancelled_draft_cannot_be_reopened(tournament_service):
+    # Decided in #19: cancelling is final.
+    tournament = create_round_robin(tournament_service)
+    tournament_service.cancel_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="cannot open registration"):
+        tournament_service.open_registration(tournament.id)
+
+
+def test_no_registration_after_cancelling(tournament_service):
+    tournament = open_with_players(tournament_service, ["u1", "u2"])
+    tournament_service.cancel_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="cannot register"):
+        tournament_service.register_player(tournament.id, "u3")
+    with pytest.raises(ValueError, match="cannot withdraw"):
+        tournament_service.withdraw_player(tournament.id, "u1")
+    with pytest.raises(ValueError, match="cannot start"):
+        tournament_service.start_tournament(tournament.id)
+
+
+def test_no_round_actions_after_cancelling(tournament_service, game_repo):
+    tournament, games = paired_round_one(tournament_service)
+    tournament_service.cancel_tournament(tournament.id)
+
+    with pytest.raises(ValueError, match="cannot record result"):
+        tournament_service.record_result(games[0].id, "1-0")
+    with pytest.raises(ValueError, match="cannot advance round"):
+        tournament_service.advance_round(tournament.id)
+    with pytest.raises(ValueError, match="cannot finish"):
+        tournament_service.finish_tournament(tournament.id)
+    with pytest.raises(ValueError, match="cannot pair round"):
+        tournament_service.pair_current_round(tournament.id)
+    assert game_repo.get_by_id(games[0].id).result is None
