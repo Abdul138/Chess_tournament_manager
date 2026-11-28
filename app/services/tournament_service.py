@@ -14,6 +14,8 @@ auth layer, as decided in issue #8.
 Lifecycle covered so far:
 
     draft  ->  registration_open  ->  in_progress  ->  finished
+      |               |                  |
+      +---------------+------------------+-->  cancelled
 
 The organizer can also cancel a tournament at any point before it is
 finished (cancel_tournament). Cancelling is final.
@@ -323,8 +325,9 @@ class TournamentService:
         - It can be cancelled from draft, registration_open or in_progress.
         - Its games are kept as a record of what happened, not deleted.
         - Cancelling is final. Every other action checks the status first,
-          so a cancelled tournament can't be reopened, joined, started,
-          paired, advanced or finished. To run it again, create a new one.
+          so a cancelled tournament can't be reopened, joined, withdrawn
+          from, started, paired, advanced or finished, and no results can
+          be entered. To run it again, create a new one.
 
         Raises ValueError if the tournament is already finished or cancelled.
         """

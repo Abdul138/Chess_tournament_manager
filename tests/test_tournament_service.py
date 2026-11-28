@@ -775,8 +775,14 @@ def test_finish_unknown_tournament_raises(tournament_service):
 
 # ---------- cancel_tournament ----------
 
-def test_cancel_a_draft(tournament_service, tournament_repo):
-    tournament = create_round_robin(tournament_service)
+def make_started(service):
+    return started_with_players(service, ["u1", "u2"])
+
+
+@pytest.mark.parametrize("make", [create_round_robin, open_tournament, make_started])
+def test_cancel_from_each_allowed_status(tournament_service, tournament_repo, make):
+    # Decided in #19: draft, registration_open and in_progress can all be cancelled.
+    tournament = make(tournament_service)
 
     cancelled = tournament_service.cancel_tournament(tournament.id)
 
@@ -850,7 +856,7 @@ def test_cancelled_draft_cannot_be_reopened(tournament_service):
         tournament_service.open_registration(tournament.id)
 
 
-def test_no_registration_after_cancelling(tournament_service):
+def test_no_registration_actions_after_cancelling(tournament_service):
     tournament = open_with_players(tournament_service, ["u1", "u2"])
     tournament_service.cancel_tournament(tournament.id)
 
