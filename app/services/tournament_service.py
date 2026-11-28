@@ -271,7 +271,8 @@ class TournamentService:
         paired or still has games without a result.
 
         Only round robin can reach this for now: Swiss rounds can't be paired
-        yet, so a Swiss tournament is always refused with "not been paired".
+        yet, so a Swiss round can never be complete and a Swiss tournament is
+        always refused.
         """
         tournament = self.get_tournament(tournament_id)
         self._require_status(tournament, TournamentStatus.IN_PROGRESS, "advance round")
