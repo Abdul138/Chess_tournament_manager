@@ -34,6 +34,7 @@ from app.models import Game, Tournament, TournamentStatus
 from app.repositories.game_repository import GameRepository
 from app.repositories.tournament_repository import TournamentRepository
 from app.services.pairing import round_robin_pairings
+from app.services.standings import Standing, calculate_standings
 
 MIN_PLAYERS_TO_START = 2
 
@@ -87,6 +88,21 @@ class TournamentService:
             raise ValueError(
                 f"cannot {action}: {missing} game(s) in round {round_number} have no result yet"
             )
+
+    # ---------- Queries ----------
+
+    def get_standings(self, tournament_id: str) -> list[Standing]:
+        """Return the tournament's standings, best first (see standings.py for the rules).
+
+        Only active players appear: withdrawn players are left out (decided in
+        issue #20). Games without a result yet are ignored, so this can be
+        called at any point, not only after the tournament has finished.
+
+        Raises ValueError if the tournament doesn't exist.
+        """
+        tournament = self.get_tournament(tournament_id)
+        games = self.game_repository.list_by_tournament(tournament.id)
+        return calculate_standings(tournament.active_player_ids, games)
 
     # ---------- Actions ----------
 
