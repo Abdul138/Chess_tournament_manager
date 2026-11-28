@@ -47,16 +47,25 @@ def test_bye_gives_one_point():
 
 
 def test_bye_is_not_a_win_and_adds_no_sonneborn_berger():
-    rows = by_player(calculate_standings(["a", "b"], [game("a", None, "bye"), game("b", "a", "0-1")]))
+    # a: bye + beat b = 2 points. b: lost to a + bye = 1 point.
+    games = [
+        game("a", None, "bye"),
+        game("b", "a", "0-1", round=2),
+        game("b", None, "bye", round=3),
+    ]
+    rows = by_player(calculate_standings(["a", "b"], games))
 
-    assert rows["a"].wins == 1  # only the real game
-    assert rows["a"].sonneborn_berger == 0  # beat b, who has 0 points
+    assert (rows["a"].points, rows["b"].points) == (2, 1)
+    assert rows["a"].wins == 1  # only the real game, not the bye
+    assert rows["a"].sonneborn_berger == 1  # b's 1 point; the bye adds nothing
+    assert rows["b"].sonneborn_berger == 0  # b's only real game was a loss
 
 
 def test_unplayed_games_are_ignored():
     standings = calculate_standings(["a", "b"], [game("a", "b", None)])
 
     assert all(row.points == 0 and row.wins == 0 for row in standings)
+    assert ranks(standings) == [1, 1]
 
 
 def test_no_games_everyone_shares_first_place():
@@ -158,6 +167,34 @@ def test_head_to_head_in_a_three_way_tie():
     assert [rows[p].head_to_head for p in "abc"] == [1.5, 1, 0.5]
     assert order(standings) == ["a", "b", "c", "d"]
     assert ranks(standings) == [1, 2, 3, 4]
+
+
+def test_head_to_head_splits_off_one_player_then_sonneborn_berger_orders_the_rest():
+    # Inside the group of a, b and c: a beat b and c, b and c drew
+    # -> head-to-head a 2, b 0.5, c 0.5. Head-to-head is worked out once for
+    # the whole group, so b and c are then ordered by Sonneborn-Berger.
+    # Outside it: b beat d and drew e, c beat e and drew d, d beat e.
+    # Final points: a 2, b 2, c 2, d 1.5, e 0.5.
+    # SB b = 1.5 (d) + 2/2 (c) + 0.5/2 (e) = 2.75
+    # SB c = 2/2 (b) + 0.5 (e) + 1.5/2 (d) = 2.25
+    games = [
+        game("a", "b", "1-0"),
+        game("a", "c", "1-0", round=2),
+        game("b", "c", "1/2-1/2", round=3),
+        game("b", "d", "1-0", round=4),
+        game("b", "e", "1/2-1/2", round=5),
+        game("c", "e", "1-0", round=6),
+        game("c", "d", "1/2-1/2", round=7),
+        game("d", "e", "1-0", round=8),
+    ]
+    standings = calculate_standings(["c", "b", "a", "d", "e"], games)
+    rows = by_player(standings)
+
+    assert [rows[p].points for p in "abcde"] == [2, 2, 2, 1.5, 0.5]
+    assert [rows[p].head_to_head for p in "abc"] == [2, 0.5, 0.5]
+    assert (rows["b"].sonneborn_berger, rows["c"].sonneborn_berger) == (2.75, 2.25)
+    assert order(standings) == ["a", "b", "c", "d", "e"]
+    assert ranks(standings) == [1, 2, 3, 4, 5]
 
 
 # ---------- Tie-break 2: Sonneborn-Berger ----------
@@ -288,6 +325,26 @@ def test_get_standings_only_counts_its_own_tournament(tournament_service):
     standings = tournament_service.get_standings(second.id)
 
     assert all(row.points == 0 for row in standings)
+
+
+def test_get_standings_after_a_whole_round_robin(tournament_service):
+    # Four players, three rounds, white wins every game.
+    tournament = start_round_robin(tournament_service, ["u1", "u2", "u3", "u4"])
+    white_games = {player_id: 0 for player_id in tournament.player_ids}
+    for round_number in range(1, tournament.total_rounds + 1):
+        for game in tournament_service.pair_current_round(tournament.id):
+            tournament_service.record_result(game.id, "1-0")
+            white_games[game.white_id] += 1
+        if round_number < tournament.total_rounds:
+            tournament_service.advance_round(tournament.id)
+
+    standings = tournament_service.get_standings(tournament.id)
+
+    assert sum(row.points for row in standings) == 6  # 6 games, 1 point each
+    assert {row.player_id: row.points for row in standings} == white_games
+    assert [row.points for row in standings] == sorted(
+        (row.points for row in standings), reverse=True
+    )
 
 
 def test_get_standings_unknown_tournament_raises(tournament_service):

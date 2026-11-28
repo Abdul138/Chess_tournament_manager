@@ -23,7 +23,9 @@ Details the issue didn't spell out, chosen here (see the PR for #20):
 - A bye gives 1 point, but it is not a game against anyone, so it adds
   nothing to Sonneborn-Berger and does not count as a win. (In a finished
   round robin with an odd number of players, everyone gets exactly one bye,
-  so this treats everyone the same.)
+  so this treats everyone the same. Mid-tournament, a player who has
+  already had their bye can be a point ahead of someone still waiting for
+  theirs.)
 """
 
 from collections import defaultdict
@@ -42,7 +44,11 @@ BYE_POINTS = 1.0
 
 @dataclass(frozen=True)
 class Standing:
-    """One row of the standings table."""
+    """One row of the standings table.
+
+    head_to_head only means something when compared between players on the
+    same points: it counts the points scored against those players.
+    """
 
     rank: int
     player_id: str
@@ -89,11 +95,13 @@ def calculate_standings(player_ids: list[str], games: list[Game]) -> list[Standi
             wins[game.black_id] += 1
 
     # ---------- Tie-break 1: head-to-head ----------
-    # Group the players by points, then count only games inside each group.
-    group_of = {player_id: points[player_id] for player_id in player_ids}
+    # Players on the same points form a group. Only games played inside a
+    # group count towards head-to-head.
+    listed = set(player_ids)
     head_to_head: dict[str, float] = defaultdict(float)
     for player, opponent, scored in played:
-        if player in group_of and opponent in group_of and group_of[player] == group_of[opponent]:
+        both_listed = player in listed and opponent in listed
+        if both_listed and points[player] == points[opponent]:
             head_to_head[player] += scored
 
     # ---------- Tie-break 2: Sonneborn-Berger ----------
